@@ -2,8 +2,8 @@
 #include <SoftwareSerial.h>
 
 // GSM Module pins (adjust according to your wiring)
-#define GSM_RX 10  // Connect to GSM TX
-#define GSM_TX 11  // Connect to GSM RX
+#define GSM_RX 6  // Connect to GSM TX
+#define GSM_TX 7  // Connect to GSM RX
 
 // APN Configuration (Update with your network provider's APN)
 #define APN "ppwap"           // Example: "internet", "airtelgprs.com", "www"
@@ -11,7 +11,8 @@
 #define APN_PASS ""              // Usually empty for most providers
 
 // API Configuration
-#define API_URL "energo.azurewebsites.net"
+#define API_URL "20.119.155.3"  // IP address to avoid DNS issues
+#define API_HOST "energo.azurewebsites.net"  // Host header for Azure
 #define API_PATH "/api/gsm-test"
 #define API_PORT "80"
 
@@ -323,6 +324,15 @@ bool sendHTTPPost() {
   String contentResp = readGSMResponse(1000);
   Serial.print(F("[DEBUG] CONTENT Response: "));
   Serial.println(contentResp);
+
+  // Set Host header for Azure routing
+  String hostCommand = "AT+HTTPPARA=\"USERDATA\",\"Host: " + String(API_HOST) + "\"";
+  Serial.print(F("[DEBUG] Sending: "));
+  Serial.println(hostCommand);
+  gsmSerial.println(hostCommand);
+  String hostResp = readGSMResponse(1000);
+  Serial.print(F("[DEBUG] Host Response: "));
+  Serial.println(hostResp);
   
   // Prepare JSON payload
   String jsonPayload = "{\"sensor\":\"temperature\",\"value\":25.5,\"device\":\"GSM_001\"}";
