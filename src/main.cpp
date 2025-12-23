@@ -115,13 +115,8 @@ void setup() {
 void loop() {
   Serial.println(F("\n--- Reading 3-Phase Measurements ---"));
   
-  // Read current measurements
+  // Read current and voltage measurements
   readThreePhase();
-  
-  // For now, use random voltage values as requested
-  for (int p = 0; p < 3; p++) {
-    voltageRMS[p] = 230.0 + random(-5, 6);  // Random voltage around 230V
-  }
   
   // Display readings
   for (int p = 0; p < 3; p++) {
