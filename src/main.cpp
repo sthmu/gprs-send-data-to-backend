@@ -2,8 +2,8 @@
 #include <SoftwareSerial.h>
 
 // GSM Module pins (adjust according to your wiring)
-#define GSM_RX 6  // Connect to GSM TX
-#define GSM_TX 7  // Connect to GSM RX
+#define GSM_RX 9  // Connect to GSM TX
+#define GSM_TX 10  // Connect to GSM RX
 
 // APN Configuration (Update with your network provider's APN)
 #define APN "ppwap"           // Example: "internet", "airtelgprs.com", "www"
@@ -11,9 +11,8 @@
 #define APN_PASS ""              // Usually empty for most providers
 
 // API Configuration
-#define API_URL "20.119.155.3"  // IP address to avoid DNS issues
-#define API_HOST "energo.azurewebsites.net"  // Host header for Azure
-#define API_PATH "/api/gsm-test"
+#define API_URL "energo.azurewebsites.net"  // Use domain name directly
+#define API_PATH "/api/energy-measurement"
 #define API_PORT "80"
 
 // Retry configuration
@@ -252,13 +251,32 @@ bool connectGPRS() {
   String openResponse = readGSMResponse(30000);
   Serial.print(F("[DEBUG] SAPBR Open Response: "));
   Serial.println(openResponse);
-  if (openResponse.indexOf("OK") == -1) {
-    Serial.println(F("✗ ERROR: Failed to open GPRS context"));
-    Serial.print(F("Response: "));
-    Serial.println(openResponse);
+  
+  // Check if already connected (error code 1 means already connected)
+  if (openResponse.indexOf("OK") == -1 && openResponse.indexOf("ERROR") != -1) {
+    Serial.println(F("⚠ GPRS context may already be open, checking status..."));
+    
+    // Query current status
+    gsmSerial.println(F("AT+SAPBR=2,1"));
+    String statusResp = readGSMResponse(2000);
+    Serial.print(F("[DEBUG] Status check: "));
+    Serial.println(statusResp);
+    
+    // If we have an IP, we're already connected
+    if (statusResp.indexOf("SAPBR: 1,1,") != -1) {
+      Serial.println(F("✓ GPRS context already active"));
+    } else {
+      Serial.println(F("✗ ERROR: Failed to open GPRS context"));
+      Serial.print(F("Response: "));
+      Serial.println(openResponse);
+      return false;
+    }
+  } else if (openResponse.indexOf("OK") != -1) {
+    Serial.println(F("✓ GPRS context opened"));
+  } else {
+    Serial.println(F("✗ ERROR: Unexpected GPRS response"));
     return false;
   }
-  Serial.println(F("✓ GPRS context opened"));
   
   // Get IP address
   Serial.println(F("[DEBUG] Sending: AT+SAPBR=2,1"));
@@ -302,9 +320,37 @@ bool sendHTTPPost() {
   String cidResp = readGSMResponse(1000);
   Serial.print(F("[DEBUG] CID Response: "));
   Serial.println(cidResp);
+  if (cidResp.indexOf("ERROR") != -1) {
+    Serial.println(F("✗ WARNING: CID parameter failed"));
+  }
   
-  // Set URL
-  String urlCommand = "AT+HTTPPARA=\"URL\",\"http://" + String(API_URL) + String(API_PATH) + "\"";
+  // Generate random energy measurement data
+  // v_rms: Voltage RMS around 230V (228-232V range)
+  float v_rms = 228.0 + (random(0, 41) / 10.0);  // 228.0 to 232.0 in 0.1V steps
+  
+  // i_rms: Current RMS (0.5A to 10.0A)
+  float i_rms = 0.5 + (random(0, 96) / 10.0);  // 0.5 to 10.0 in 0.1A steps
+  
+  // pf: Power factor (fixed at 1.0)
+  float pf = 1.0;
+  
+  Serial.print(F("Data: v_rms="));
+  Serial.print(v_rms, 1);
+  Serial.print(F(", i_rms="));
+  Serial.print(i_rms, 1);
+  Serial.print(F(", pf="));
+  Serial.println(pf, 1);
+  
+  // Build URL with query parameters (workaround for SIM900 Content-Type limitation)
+  String queryParams = "?v_rms=" + String(v_rms, 1) + "&i_rms=" + String(i_rms, 1) + "&pf=" + String(pf, 1);
+  String fullUrl = "http://" + String(API_URL) + String(API_PATH) + queryParams;
+  
+  Serial.println(F("[INFO] Using query parameters (SIM900 workaround)"));
+  Serial.print(F("[INFO] Full URL: "));
+  Serial.println(fullUrl);
+  
+  // Set URL with query parameters
+  String urlCommand = "AT+HTTPPARA=\"URL\",\"" + fullUrl + "\"";
   Serial.print(F("[DEBUG] Sending: "));
   Serial.println(urlCommand);
   gsmSerial.println(urlCommand);
@@ -316,62 +362,7 @@ bool sendHTTPPost() {
     gsmSerial.println(F("AT+HTTPTERM"));
     return false;
   }
-  Serial.println(F("✓ URL set"));
-  
-  // Set Content-Type
-  Serial.println(F("[DEBUG] Sending: AT+HTTPPARA=\"CONTENT\",\"application/json\""));
-  gsmSerial.println(F("AT+HTTPPARA=\"CONTENT\",\"application/json\""));
-  String contentResp = readGSMResponse(1000);
-  Serial.print(F("[DEBUG] CONTENT Response: "));
-  Serial.println(contentResp);
-
-  // Set Host header for Azure routing
-  String hostCommand = "AT+HTTPPARA=\"USERDATA\",\"Host: " + String(API_HOST) + "\"";
-  Serial.print(F("[DEBUG] Sending: "));
-  Serial.println(hostCommand);
-  gsmSerial.println(hostCommand);
-  String hostResp = readGSMResponse(1000);
-  Serial.print(F("[DEBUG] Host Response: "));
-  Serial.println(hostResp);
-  
-  // Prepare JSON payload
-  String jsonPayload = "{\"sensor\":\"temperature\",\"value\":25.5,\"device\":\"GSM_001\"}";
-  int dataLength = jsonPayload.length();
-  
-  Serial.print(F("Payload: "));
-  Serial.println(jsonPayload);
-  
-  // Start HTTP data input
-  String dataCommand = "AT+HTTPDATA=" + String(dataLength) + ",10000";
-  Serial.print(F("[DEBUG] Sending: "));
-  Serial.println(dataCommand);
-  Serial.println(dataCommand);
-  gsmSerial.println(dataCommand);
-  
-  // Wait for DOWNLOAD prompt
-  String downloadResp = readGSMResponse(2000);
-  Serial.print(F("[DEBUG] Download Response: "));
-  Serial.println(downloadResp);
-  if (downloadResp.indexOf("DOWNLOAD") == -1) {
-    Serial.println(F("✗ ERROR: Data input failed - no DOWNLOAD prompt"));
-    gsmSerial.println(F("AT+HTTPTERM"));
-    return false;
-  }
-  Serial.println(F("✓ Ready for data upload"));
-  
-  // Send JSON data
-  Serial.print(F("[DEBUG] Sending payload: "));
-  Serial.println(jsonPayload);
-  gsmSerial.println(jsonPayload);
-  String dataSentResp = readGSMResponse(10000);
-  Serial.print(F("[DEBUG] Data Sent Response: "));
-  Serial.println(dataSentResp);
-  if (dataSentResp.indexOf("OK") == -1) {
-    Serial.println(F("✗ ERROR: Data send failed"));
-    gsmSerial.println(F("AT+HTTPTERM"));
-    return false;
-  }
-  Serial.println(F("✓ Payload uploaded"));
+  Serial.println(F("✓ URL set with query parameters"));
   
   // Execute HTTP POST
   Serial.println(F("[DEBUG] Sending: AT+HTTPACTION=1"));
@@ -413,20 +404,34 @@ bool sendHTTPPost() {
     
     if (firstComma != -1 && secondComma != -1) {
       String statusCode = actionResponse.substring(firstComma + 1, secondComma);
+      String dataLen = actionResponse.substring(secondComma + 1);
       statusCode.trim();
+      dataLen.trim();
       
-      Serial.print(F("HTTP Status Code: "));
+      Serial.print(F("[DEBUG] HTTP Status Code: "));
       Serial.println(statusCode);
+      Serial.print(F("[DEBUG] Response Data Length: "));
+      Serial.print(dataLen);
+      Serial.println(F(" bytes"));
       
       int code = statusCode.toInt();
       if (code == 200) {
-        Serial.println(F("✓ HTTP 200 OK"));
+        Serial.println(F("✓ HTTP 200 OK - Success!"));
       } else if (code == 0) {
         Serial.println(F("✗ ERROR: HTTP request failed (timeout or connection error)"));
         gsmSerial.println(F("AT+HTTPTERM"));
         return false;
+      } else if (code >= 400 && code < 500) {
+        Serial.print(F("✗ HTTP Client Error: "));
+        Serial.println(code);
+        if (code == 404) Serial.println(F("  → Endpoint not found"));
+        else if (code == 400) Serial.println(F("  → Bad request - check JSON format"));
+      } else if (code >= 500) {
+        Serial.print(F("✗ HTTP Server Error: "));
+        Serial.println(code);
+        Serial.println(F("  → Server failed to process request"));
       } else {
-        Serial.print(F("✗ HTTP Error Code: "));
+        Serial.print(F("⚠ HTTP Code: "));
         Serial.println(code);
       }
     }
@@ -437,13 +442,26 @@ bool sendHTTPPost() {
   }
   
   // Read HTTP response
+  Serial.println(F("[DEBUG] Reading server response..."));
   delay(1000);
+  Serial.println(F("[DEBUG] Sending: AT+HTTPREAD"));
   gsmSerial.println(F("AT+HTTPREAD"));
   String httpResponse = readGSMResponse(10000);
   
-  Serial.println(F("\n--- Server Response ---"));
+  Serial.println(F("\n========== SERVER RESPONSE START =========="));
   Serial.println(httpResponse);
-  Serial.println(F("--- End Response ---\n"));
+  Serial.println(F("========== SERVER RESPONSE END ============\n"));
+  
+  // Try to extract just the JSON/text content
+  if (httpResponse.indexOf("+HTTPREAD:") != -1) {
+    int contentStart = httpResponse.indexOf('\n', httpResponse.indexOf("+HTTPREAD:"));
+    if (contentStart != -1) {
+      String content = httpResponse.substring(contentStart + 1);
+      content.trim();
+      Serial.println(F("[DEBUG] Extracted Response Body:"));
+      Serial.println(content);
+    }
+  }
   
   // Terminate HTTP service
   gsmSerial.println(F("AT+HTTPTERM"));
@@ -455,23 +473,12 @@ bool sendHTTPPost() {
 }
 
 bool checkResponse(String response) {
-  // Check for "SUCCESS" in the response
-  if (response.indexOf("SUCCESS") != -1) {
-    Serial.println(F("✓ Server returned SUCCESS status"));
-    
-    // Try to extract additional info
-    if (response.indexOf("serverTime") != -1) {
-      int timeIdx = response.indexOf("serverTime");
-      Serial.println(F("✓ Server time received"));
-    }
-    
-    if (response.indexOf("totalLogs") != -1) {
-      Serial.println(F("✓ Total logs count received"));
-    }
-    
+  // Check for "OK" in the response
+  if (response.indexOf("OK") != -1) {
+    Serial.println(F("✓ Server returned OK status"));
     return true;
   } else {
-    Serial.println(F("✗ Response does not contain SUCCESS status"));
+    Serial.println(F("✗ Response does not contain OK status"));
     return false;
   }
 }
