@@ -1,7 +1,5 @@
 #include "gsm.h"
 
-SoftwareSerial gsmSerial(GSM_RX, GSM_TX);
-
 // Function declarations (already in header)
 bool checkResponse(String response);
 String readGSMResponse(unsigned long timeout = 5000);
@@ -10,25 +8,14 @@ bool waitForResponse(String expected, unsigned long timeout = 10000);
 
 bool initGSM() {
   Serial.println(F("Initializing GSM module..."));
-
-  // Initialize GSM Serial with proper timing
-  gsmSerial.begin(9600);
-  delay(3000);  // Give GSM module time to boot up
-
-  Serial.println(F("[DEBUG] Testing GSM module communication..."));
-
-  // Test AT command with longer timeout
+  
+  // Test AT command
   gsmSerial.println(F("AT"));
-  if (!waitForResponse("OK", 5000)) {
-    Serial.println(F("✗ ERROR: GSM module not responding to AT command"));
-    Serial.println(F("Check:"));
-    Serial.println(F("  - Wiring connections"));
-    Serial.println(F("  - Power supply to GSM module"));
-    Serial.println(F("  - Correct RX/TX pin connections"));
-    Serial.println(F("  - GSM module power switch/LED"));
+  if (!waitForResponse("OK", 2000)) {
+    Serial.println(F("✗ ERROR: GSM module not responding"));
     return false;
   }
-  Serial.println(F("✓ GSM module responding to AT"));
+  Serial.println(F("✓ GSM module responding"));
 
   // Enable verbose error messages
   gsmSerial.println(F("AT+CMEE=2"));
@@ -110,19 +97,13 @@ bool connectGPRS() {
   }
 
   // Close any existing GPRS context first
-  Serial.println(F("[DEBUG] Closing any existing GPRS context..."));
   gsmSerial.println(F("AT+SAPBR=0,1"));
   delay(2000);
   String closeResp = readGSMResponse(2000);
-  Serial.print(F("[DEBUG] Close Response: "));
-  Serial.println(closeResp);
 
   // Attach to GPRS service
-  Serial.println(F("[DEBUG] Sending: AT+CGATT=1"));
   gsmSerial.println(F("AT+CGATT=1"));
   String attachResponse = readGSMResponse(10000);
-  Serial.print(F("[DEBUG] CGATT Response: "));
-  Serial.println(attachResponse);
   if (attachResponse.indexOf("OK") == -1) {
     Serial.println(F("✗ ERROR: Failed to attach to GPRS"));
     Serial.print(F("Response: "));
@@ -132,49 +113,31 @@ bool connectGPRS() {
   Serial.println(F("✓ GPRS attached"));
 
   // Set connection type to GPRS
-  Serial.println(F("[DEBUG] Sending: AT+SAPBR=3,1,\"CONTYPE\",\"GPRS\""));
   gsmSerial.println(F("AT+SAPBR=3,1,\"CONTYPE\",\"GPRS\""));
   String contypeResp = readGSMResponse(2000);
-  Serial.print(F("[DEBUG] CONTYPE Response: "));
-  Serial.println(contypeResp);
 
   // Set APN
   String apnCommand = "AT+SAPBR=3,1,\"APN\",\"" + String(APN) + "\"";
-  Serial.print(F("[DEBUG] Sending: "));
-  Serial.println(apnCommand);
   gsmSerial.println(apnCommand);
   String apnResp = readGSMResponse(2000);
-  Serial.print(F("[DEBUG] APN Response: "));
-  Serial.println(apnResp);
 
   // Set APN user if needed
   if (strlen(APN_USER) > 0) {
     String userCommand = "AT+SAPBR=3,1,\"USER\",\"" + String(APN_USER) + "\"";
-    Serial.print(F("[DEBUG] Sending: "));
-    Serial.println(userCommand);
     gsmSerial.println(userCommand);
     String userResp = readGSMResponse(2000);
-    Serial.print(F("[DEBUG] USER Response: "));
-    Serial.println(userResp);
   }
 
   // Set APN password if needed
   if (strlen(APN_PASS) > 0) {
     String passCommand = "AT+SAPBR=3,1,\"PWD\",\"" + String(APN_PASS) + "\"";
-    Serial.print(F("[DEBUG] Sending: "));
-    Serial.println(passCommand);
     gsmSerial.println(passCommand);
     String passResp = readGSMResponse(2000);
-    Serial.print(F("[DEBUG] PWD Response: "));
-    Serial.println(passResp);
   }
 
   // Open GPRS context
-  Serial.println(F("[DEBUG] Sending: AT+SAPBR=1,1"));
   gsmSerial.println(F("AT+SAPBR=1,1"));
   String openResponse = readGSMResponse(30000);
-  Serial.print(F("[DEBUG] SAPBR Open Response: "));
-  Serial.println(openResponse);
 
   // Check if already connected (error code 1 means already connected)
   if (openResponse.indexOf("OK") == -1 && openResponse.indexOf("ERROR") != -1) {
@@ -183,8 +146,6 @@ bool connectGPRS() {
     // Query current status
     gsmSerial.println(F("AT+SAPBR=2,1"));
     String statusResp = readGSMResponse(2000);
-    Serial.print(F("[DEBUG] Status check: "));
-    Serial.println(statusResp);
 
     // If we have an IP, we're already connected
     if (statusResp.indexOf("SAPBR: 1,1,") != -1) {
@@ -203,11 +164,8 @@ bool connectGPRS() {
   }
 
   // Get IP address
-  Serial.println(F("[DEBUG] Sending: AT+SAPBR=2,1"));
   gsmSerial.println(F("AT+SAPBR=2,1"));
   String response = readGSMResponse(2000);
-  Serial.print(F("[DEBUG] IP Query Response: "));
-  Serial.println(response);
   Serial.print(F("IP Address: "));
   Serial.println(response);
 
@@ -215,39 +173,15 @@ bool connectGPRS() {
   return true;
 }
 
-bool sendEnergyData(float v_rms, float i_rms, float pf) {
+bool sendHTTPPost() {
   Serial.println(F("Sending HTTP POST request..."));
-
-  // First check if we still have GPRS connection
-  Serial.println(F("[DEBUG] Checking GPRS connection status..."));
-  gsmSerial.println(F("AT+SAPBR=2,1"));
-  String gprsStatus = readGSMResponse(2000);
-  Serial.print(F("[DEBUG] GPRS Status: "));
-  Serial.println(gprsStatus);
-
-  if (gprsStatus.indexOf("SAPBR: 1,1,") == -1) {
-    Serial.println(F("✗ ERROR: GPRS connection lost!"));
-    Serial.println(F("Attempting to reconnect..."));
-
-    // Try to reconnect GPRS
-    if (!connectGPRS()) {
-      Serial.println(F("✗ ERROR: Failed to reconnect GPRS"));
-      return false;
-    }
-  } else {
-    Serial.println(F("✓ GPRS connection active"));
-  }
-
+  
   // Terminate any existing HTTP session first
-  Serial.println(F("[DEBUG] Sending: AT+HTTPTERM"));
   gsmSerial.println(F("AT+HTTPTERM"));
   delay(500);
   String termResp = readGSMResponse(1000);
-  Serial.print(F("[DEBUG] HTTPTERM Response: "));
-  Serial.println(termResp);
-
+  
   // Initialize HTTP service
-  Serial.println(F("[DEBUG] Sending: AT+HTTPINIT"));
   gsmSerial.println(F("AT+HTTPINIT"));
   String initResp = readGSMResponse(2000);
   Serial.print(F("HTTPINIT: "));
@@ -257,97 +191,86 @@ bool sendEnergyData(float v_rms, float i_rms, float pf) {
     return false;
   }
   Serial.println(F("✓ HTTP initialized"));
-
+  
   // Set HTTP parameters
-  Serial.println(F("[DEBUG] Sending: AT+HTTPPARA=\"CID\",1"));
   gsmSerial.println(F("AT+HTTPPARA=\"CID\",1"));
   String cidResp = readGSMResponse(1000);
-  Serial.print(F("[DEBUG] CID Response: "));
-  Serial.println(cidResp);
   if (cidResp.indexOf("ERROR") != -1) {
     Serial.println(F("✗ WARNING: CID parameter failed"));
   }
-
+  
+  // Generate random energy measurement data
+  // v_rms: Voltage RMS around 230V (228-232V range)
+  float v_rms = 228.0 + (random(0, 41) / 10.0);  // 228.0 to 232.0 in 0.1V steps
+  
+  // i_rms: Current RMS (0.5A to 10.0A)
+  float i_rms = 0.5 + (random(0, 96) / 10.0);  // 0.5 to 10.0 in 0.1A steps
+  
+  // pf: Power factor (fixed at 1.0)
+  float pf = 1.0;
+  
   Serial.print(F("Data: v_rms="));
   Serial.print(v_rms, 1);
   Serial.print(F(", i_rms="));
   Serial.print(i_rms, 1);
   Serial.print(F(", pf="));
   Serial.println(pf, 1);
-
+  
   // Build URL with query parameters (workaround for SIM900 Content-Type limitation)
   String queryParams = "?v_rms=" + String(v_rms, 1) + "&i_rms=" + String(i_rms, 1) + "&pf=" + String(pf, 1);
   String fullUrl = "http://" + String(API_URL) + String(API_PATH) + queryParams;
-
+  
   Serial.println(F("[INFO] Using query parameters (SIM900 workaround)"));
   Serial.print(F("[INFO] Full URL: "));
   Serial.println(fullUrl);
-
+  
   // Set URL with query parameters
   String urlCommand = "AT+HTTPPARA=\"URL\",\"" + fullUrl + "\"";
-  Serial.print(F("[DEBUG] Sending: "));
-  Serial.println(urlCommand);
   gsmSerial.println(urlCommand);
   String urlResp = readGSMResponse(2000);
-  Serial.print(F("[DEBUG] URL Response: "));
-  Serial.println(urlResp);
   if (urlResp.indexOf("OK") == -1) {
     Serial.println(F("✗ ERROR: URL set failed"));
     gsmSerial.println(F("AT+HTTPTERM"));
     return false;
   }
   Serial.println(F("✓ URL set with query parameters"));
-
+  
   // Execute HTTP POST
-  Serial.println(F("[DEBUG] Sending: AT+HTTPACTION=1"));
   Serial.println(F("Executing POST request..."));
   gsmSerial.println(F("AT+HTTPACTION=1"));  // 1 = POST
-
+  
   // First wait for OK response
   String okResponse = readGSMResponse(2000);
-  Serial.print(F("[DEBUG] AT+HTTPACTION OK: "));
-  Serial.println(okResponse);
-
+  
   // Then wait for the actual +HTTPACTION unsolicited response
-  Serial.println(F("[DEBUG] Waiting for +HTTPACTION response..."));
+  Serial.println(F("Waiting for HTTP response..."));
   unsigned long startWait = millis();
   String actionResponse = "";
-
+  
   while (millis() - startWait < 30000) {
     if (gsmSerial.available()) {
       char c = gsmSerial.read();
       actionResponse += c;
-      Serial.print(c);  // Show characters as they arrive
     }
-
+    
     // Check if we got the complete +HTTPACTION response
     if (actionResponse.indexOf("+HTTPACTION") != -1 && actionResponse.indexOf("\n") > actionResponse.indexOf("+HTTPACTION")) {
       break;
     }
   }
-
-  Serial.println();
-  Serial.print(F("[DEBUG] HTTP Action Response: "));
-  Serial.println(actionResponse);
-
+  
   // Parse HTTP status code
   // Response format: +HTTPACTION: 1,<status_code>,<data_len>
   if (actionResponse.indexOf("+HTTPACTION") != -1) {
     int firstComma = actionResponse.indexOf(',');
     int secondComma = actionResponse.indexOf(',', firstComma + 1);
-
+    
     if (firstComma != -1 && secondComma != -1) {
       String statusCode = actionResponse.substring(firstComma + 1, secondComma);
       String dataLen = actionResponse.substring(secondComma + 1);
       statusCode.trim();
       dataLen.trim();
-
-      Serial.print(F("[DEBUG] HTTP Status Code: "));
-      Serial.println(statusCode);
-      Serial.print(F("[DEBUG] Response Data Length: "));
-      Serial.print(dataLen);
-      Serial.println(F(" bytes"));
-
+      
       int code = statusCode.toInt();
       if (code == 200) {
         Serial.println(F("✓ HTTP 200 OK - Success!"));
@@ -374,33 +297,31 @@ bool sendEnergyData(float v_rms, float i_rms, float pf) {
     gsmSerial.println(F("AT+HTTPTERM"));
     return false;
   }
-
+  
   // Read HTTP response
-  Serial.println(F("[DEBUG] Reading server response..."));
   delay(1000);
-  Serial.println(F("[DEBUG] Sending: AT+HTTPREAD"));
   gsmSerial.println(F("AT+HTTPREAD"));
   String httpResponse = readGSMResponse(10000);
-
+  
   Serial.println(F("\n========== SERVER RESPONSE START =========="));
   Serial.println(httpResponse);
   Serial.println(F("========== SERVER RESPONSE END ============\n"));
-
+  
   // Try to extract just the JSON/text content
   if (httpResponse.indexOf("+HTTPREAD:") != -1) {
     int contentStart = httpResponse.indexOf('\n', httpResponse.indexOf("+HTTPREAD:"));
     if (contentStart != -1) {
       String content = httpResponse.substring(contentStart + 1);
       content.trim();
-      Serial.println(F("[DEBUG] Extracted Response Body:"));
+      Serial.println(F("Extracted Response Body:"));
       Serial.println(content);
     }
   }
-
+  
   // Terminate HTTP service
   gsmSerial.println(F("AT+HTTPTERM"));
   waitForResponse("OK", 2000);
-
+  
   // Check if response contains SUCCESS
   bool success = checkResponse(httpResponse);
   return success;

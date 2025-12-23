@@ -22,10 +22,12 @@
 #define MAX_RETRIES 3
 #define RETRY_DELAY 5000  // 5 seconds between retries
 
+extern SoftwareSerial gsmSerial;
+
 // Function declarations
 bool initGSM();
 bool connectGPRS();
-bool sendEnergyData(float v_rms, float i_rms, float pf);
+bool sendHTTPPost();
 bool checkResponse(String response);
 String readGSMResponse(unsigned long timeout = 5000);
 void sendATCommand(String command, unsigned long timeout = 1000);
