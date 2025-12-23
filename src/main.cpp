@@ -21,49 +21,75 @@ void setup() {
   Serial.begin(9600);
   while (!Serial);
 
-  Serial.println("=== Energy Measurement GSM Sender ===");
+  Serial.println(F("=== Energy Measurement GSM Sender ==="));
+  Serial.println(F("Initializing..."));
 
   // Initialize GSM module
   if (!initGSM()) {
-    Serial.println("GSM initialization failed!");
-    while (1); // Stop here
+    Serial.println(F("Failed to initialize GSM module!"));
+    Serial.println(F("Check wiring and power supply."));
+    return;
   }
 
   // Connect to GPRS
   if (!connectGPRS()) {
-    Serial.println("GPRS connection failed!");
-    while (1); // Stop here
+    Serial.println(F("Failed to connect to GPRS!"));
+    Serial.println(F("Check APN settings and SIM card."));
+    return;
   }
 
-  Serial.println("System ready!");
+  Serial.println(F("Setup complete!"));
+  Serial.println(F("Ready to send HTTP POST requests."));
 }
 
 void loop() {
+  Serial.println(F("\n--- Attempting HTTP POST ---"));
+
   // Read energy measurements
   float voltage = readVoltageRMS();
   float current = readCurrentRMS();
   float pf = calculatePowerFactor();
 
   // Display readings
-  Serial.print("Voltage: ");
+  Serial.print(F("Voltage: "));
   Serial.print(voltage, 1);
-  Serial.println("V");
+  Serial.println(F("V"));
 
-  Serial.print("Current: ");
+  Serial.print(F("Current: "));
   Serial.print(current, 1);
-  Serial.println("A");
+  Serial.println(F("A"));
 
-  Serial.print("Power Factor: ");
+  Serial.print(F("Power Factor: "));
   Serial.println(pf, 1);
 
-  // Send data via GSM
-  if (sendEnergyData(voltage, current, pf)) {
-    Serial.println("✓ Data sent successfully!");
+  int attempts = 0;
+  bool success = false;
+
+  // Retry logic
+  while (attempts < MAX_RETRIES && !success) {
+    attempts++;
+    Serial.print(F("Attempt "));
+    Serial.print(attempts);
+    Serial.print(F(" of "));
+    Serial.println(MAX_RETRIES);
+
+    success = sendEnergyData(voltage, current, pf);
+
+    if (!success && attempts < MAX_RETRIES) {
+      Serial.print(F("Retrying in "));
+      Serial.print(RETRY_DELAY / 1000);
+      Serial.println(F(" seconds..."));
+      delay(RETRY_DELAY);
+    }
+  }
+
+  if (success) {
+    Serial.println(F("\n✓ HTTP POST successful!"));
   } else {
-    Serial.println("✗ Failed to send data");
+    Serial.println(F("\n✗ HTTP POST failed after all retries."));
   }
 
   // Wait 30 seconds before next reading
-  Serial.println("Waiting 30 seconds...");
+  Serial.println(F("\nWaiting 30 seconds before next request..."));
   delay(30000);
 }
