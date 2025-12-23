@@ -11,13 +11,24 @@ bool waitForResponse(String expected, unsigned long timeout = 10000);
 bool initGSM() {
   Serial.println(F("Initializing GSM module..."));
 
-  // Test AT command
+  // Initialize GSM Serial with proper timing
+  gsmSerial.begin(9600);
+  delay(3000);  // Give GSM module time to boot up
+
+  Serial.println(F("[DEBUG] Testing GSM module communication..."));
+
+  // Test AT command with longer timeout
   gsmSerial.println(F("AT"));
-  if (!waitForResponse("OK", 2000)) {
-    Serial.println(F("✗ ERROR: GSM module not responding"));
+  if (!waitForResponse("OK", 5000)) {
+    Serial.println(F("✗ ERROR: GSM module not responding to AT command"));
+    Serial.println(F("Check:"));
+    Serial.println(F("  - Wiring connections"));
+    Serial.println(F("  - Power supply to GSM module"));
+    Serial.println(F("  - Correct RX/TX pin connections"));
+    Serial.println(F("  - GSM module power switch/LED"));
     return false;
   }
-  Serial.println(F("✓ GSM module responding"));
+  Serial.println(F("✓ GSM module responding to AT"));
 
   // Enable verbose error messages
   gsmSerial.println(F("AT+CMEE=2"));
@@ -206,6 +217,26 @@ bool connectGPRS() {
 
 bool sendEnergyData(float v_rms, float i_rms, float pf) {
   Serial.println(F("Sending HTTP POST request..."));
+
+  // First check if we still have GPRS connection
+  Serial.println(F("[DEBUG] Checking GPRS connection status..."));
+  gsmSerial.println(F("AT+SAPBR=2,1"));
+  String gprsStatus = readGSMResponse(2000);
+  Serial.print(F("[DEBUG] GPRS Status: "));
+  Serial.println(gprsStatus);
+
+  if (gprsStatus.indexOf("SAPBR: 1,1,") == -1) {
+    Serial.println(F("✗ ERROR: GPRS connection lost!"));
+    Serial.println(F("Attempting to reconnect..."));
+
+    // Try to reconnect GPRS
+    if (!connectGPRS()) {
+      Serial.println(F("✗ ERROR: Failed to reconnect GPRS"));
+      return false;
+    }
+  } else {
+    Serial.println(F("✓ GPRS connection active"));
+  }
 
   // Terminate any existing HTTP session first
   Serial.println(F("[DEBUG] Sending: AT+HTTPTERM"));
