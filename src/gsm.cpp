@@ -102,8 +102,11 @@ bool connectGPRS() {
   String closeResp = readGSMResponse(2000);
 
   // Attach to GPRS service
+  Serial.println(F("[DEBUG] Sending: AT+CGATT=1"));
   gsmSerial.println(F("AT+CGATT=1"));
   String attachResponse = readGSMResponse(10000);
+  Serial.print(F("[DEBUG] CGATT Response: "));
+  Serial.println(attachResponse);
   if (attachResponse.indexOf("OK") == -1) {
     Serial.println(F("✗ ERROR: Failed to attach to GPRS"));
     Serial.print(F("Response: "));
@@ -113,31 +116,49 @@ bool connectGPRS() {
   Serial.println(F("✓ GPRS attached"));
 
   // Set connection type to GPRS
+  Serial.println(F("[DEBUG] Sending: AT+SAPBR=3,1,\"CONTYPE\",\"GPRS\""));
   gsmSerial.println(F("AT+SAPBR=3,1,\"CONTYPE\",\"GPRS\""));
   String contypeResp = readGSMResponse(2000);
+  Serial.print(F("[DEBUG] CONTYPE Response: "));
+  Serial.println(contypeResp);
 
   // Set APN
   String apnCommand = "AT+SAPBR=3,1,\"APN\",\"" + String(APN) + "\"";
+  Serial.print(F("[DEBUG] Sending: "));
+  Serial.println(apnCommand);
   gsmSerial.println(apnCommand);
   String apnResp = readGSMResponse(2000);
+  Serial.print(F("[DEBUG] APN Response: "));
+  Serial.println(apnResp);
 
   // Set APN user if needed
   if (strlen(APN_USER) > 0) {
     String userCommand = "AT+SAPBR=3,1,\"USER\",\"" + String(APN_USER) + "\"";
+    Serial.print(F("[DEBUG] Sending: "));
+    Serial.println(userCommand);
     gsmSerial.println(userCommand);
     String userResp = readGSMResponse(2000);
+    Serial.print(F("[DEBUG] USER Response: "));
+    Serial.println(userResp);
   }
 
   // Set APN password if needed
   if (strlen(APN_PASS) > 0) {
     String passCommand = "AT+SAPBR=3,1,\"PWD\",\"" + String(APN_PASS) + "\"";
+    Serial.print(F("[DEBUG] Sending: "));
+    Serial.println(passCommand);
     gsmSerial.println(passCommand);
     String passResp = readGSMResponse(2000);
+    Serial.print(F("[DEBUG] PWD Response: "));
+    Serial.println(passResp);
   }
 
   // Open GPRS context
+  Serial.println(F("[DEBUG] Sending: AT+SAPBR=1,1"));
   gsmSerial.println(F("AT+SAPBR=1,1"));
   String openResponse = readGSMResponse(30000);
+  Serial.print(F("[DEBUG] SAPBR Open Response: "));
+  Serial.println(openResponse);
 
   // Check if already connected (error code 1 means already connected)
   if (openResponse.indexOf("OK") == -1 && openResponse.indexOf("ERROR") != -1) {
@@ -164,8 +185,11 @@ bool connectGPRS() {
   }
 
   // Get IP address
+  Serial.println(F("[DEBUG] Sending: AT+SAPBR=2,1"));
   gsmSerial.println(F("AT+SAPBR=2,1"));
   String response = readGSMResponse(2000);
+  Serial.print(F("[DEBUG] IP Query Response: "));
+  Serial.println(response);
   Serial.print(F("IP Address: "));
   Serial.println(response);
 
@@ -173,7 +197,7 @@ bool connectGPRS() {
   return true;
 }
 
-bool sendHTTPPost() {
+bool sendHTTPPost(float p1_v, float p1_i, float p1_pf, float p2_v, float p2_i, float p2_pf, float p3_v, float p3_i, float p3_pf) {
   Serial.println(F("Sending HTTP POST request..."));
   
   // Terminate any existing HTTP session first
@@ -199,35 +223,50 @@ bool sendHTTPPost() {
     Serial.println(F("✗ WARNING: CID parameter failed"));
   }
   
-  // Generate random energy measurement data
-  // v_rms: Voltage RMS around 230V (228-232V range)
-  float v_rms = 228.0 + (random(0, 41) / 10.0);  // 228.0 to 232.0 in 0.1V steps
+  // Data is passed as query parameters in URL
   
-  // i_rms: Current RMS (0.5A to 10.0A)
-  float i_rms = 0.5 + (random(0, 96) / 10.0);  // 0.5 to 10.0 in 0.1A steps
+  Serial.print(F("Data: P1 V="));
+  Serial.print(p1_v, 1);
+  Serial.print(F(" I="));
+  Serial.print(p1_i, 1);
+  Serial.print(F(" PF="));
+  Serial.print(p1_pf, 2);
+  Serial.print(F(" | P2 V="));
+  Serial.print(p2_v, 1);
+  Serial.print(F(" I="));
+  Serial.print(p2_i, 1);
+  Serial.print(F(" PF="));
+  Serial.print(p2_pf, 2);
+  Serial.print(F(" | P3 V="));
+  Serial.print(p3_v, 1);
+  Serial.print(F(" I="));
+  Serial.print(p3_i, 1);
+  Serial.print(F(" PF="));
+  Serial.println(p3_pf, 2);
   
-  // pf: Power factor (fixed at 1.0)
-  float pf = 1.0;
+  // Build URL with shortened query parameters to fit SIM900 limit
+  String queryParams = "?d=TEST&v1=" + String(p1_v, 1) + "&c1=" + String(p1_i, 1) + "&pf1=" + String(p1_pf, 2);
+  queryParams += "&v2=" + String(p2_v, 1) + "&c2=" + String(p2_i, 1) + "&pf2=" + String(p2_pf, 2);
+  queryParams += "&v3=" + String(p3_v, 1) + "&c3=" + String(p3_i, 1) + "&pf3=" + String(p3_pf, 2);
   
-  Serial.print(F("Data: v_rms="));
-  Serial.print(v_rms, 1);
-  Serial.print(F(", i_rms="));
-  Serial.print(i_rms, 1);
-  Serial.print(F(", pf="));
-  Serial.println(pf, 1);
-  
-  // Build URL with query parameters (workaround for SIM900 Content-Type limitation)
-  String queryParams = "?v_rms=" + String(v_rms, 1) + "&i_rms=" + String(i_rms, 1) + "&pf=" + String(pf, 1);
   String fullUrl = "http://" + String(API_URL) + String(API_PATH) + queryParams;
   
-  Serial.println(F("[INFO] Using query parameters (SIM900 workaround)"));
+  Serial.println(F("[INFO] Using GET with shortened query parameters"));
+  Serial.print(F("URL length: "));
+  Serial.println(fullUrl.length());
   Serial.print(F("[INFO] Full URL: "));
   Serial.println(fullUrl);
   
   // Set URL with query parameters
   String urlCommand = "AT+HTTPPARA=\"URL\",\"" + fullUrl + "\"";
+  Serial.print(F("Command length: "));
+  Serial.println(urlCommand.length());
+  Serial.print(F("[DEBUG] Sending URL command (first 50 chars): "));
+  Serial.println(urlCommand.substring(0, 50));
   gsmSerial.println(urlCommand);
   String urlResp = readGSMResponse(2000);
+  Serial.print(F("[DEBUG] URL Response: "));
+  Serial.println(urlResp);
   if (urlResp.indexOf("OK") == -1) {
     Serial.println(F("✗ ERROR: URL set failed"));
     gsmSerial.println(F("AT+HTTPTERM"));
@@ -235,9 +274,9 @@ bool sendHTTPPost() {
   }
   Serial.println(F("✓ URL set with query parameters"));
   
-  // Execute HTTP POST
-  Serial.println(F("Executing POST request..."));
-  gsmSerial.println(F("AT+HTTPACTION=1"));  // 1 = POST
+  // Execute HTTP GET
+  Serial.println(F("Executing GET request..."));
+  gsmSerial.println(F("AT+HTTPACTION=0"));  // 0 = GET
   
   // First wait for OK response
   String okResponse = readGSMResponse(2000);
