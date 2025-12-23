@@ -76,20 +76,55 @@ void readThreePhase() {
   }
 }
 
+void sendToESP() {
+
+
+  Serial.println(F("\n--- Sending Data to ESP32 ---"));
+
+  Serial.print("<DATA>");
+  Serial.print("V1:");
+  Serial.print(voltageRMS[0], 1);
+  Serial.print(" ");
+  Serial.print("V2:");
+  Serial.print(voltageRMS[1], 1);
+  Serial.print(" ");
+  Serial.print("V3:");
+  Serial.print(voltageRMS[2], 1);
+  Serial.print(" ");
+  Serial.print("I1:");
+  Serial.print(currentRMS[0], 2);
+  Serial.print(" ");
+  Serial.print("I2:");
+  Serial.print(currentRMS[1], 2);
+  Serial.print(" ");
+  Serial.print("I3:");
+  Serial.print(currentRMS[2], 2);
+  Serial.println("</DATA>");
+
+  Serial.println(F("--- Data Sent ---"));
+}
+
 SoftwareSerial gsmSerial(GSM_RX, GSM_TX);
 
 void setup() {
   Serial.begin(9600);
-  while (!Serial);
+  
+  calibrateSensors();
   
   Serial.println(F("=== GSM 3-Phase Energy Monitor ==="));
-  Serial.println(F("Initializing..."));
   
   // Initialize GSM Serial
   gsmSerial.begin(9600);
   delay(3000);
   
-  // Calibrate sensors
+  // Calibration Countdown: Warn user and countdown
+  Serial.println(F("Prepare for calibration - remove all loads!"));
+  for (int i = 3; i > 0; i--) {
+    Serial.print(F("Calibration in: "));
+    Serial.println(i);
+    delay(1000);
+  }
+  
   Serial.println(F("Calibrating sensors..."));
   calibrateSensors();
   Serial.println(F("Calibration complete."));
@@ -117,6 +152,9 @@ void loop() {
   
   // Read current and voltage measurements
   readThreePhase();
+  
+  // Send data to ESP32
+  sendToESP();
   
   // Display readings
   for (int p = 0; p < 3; p++) {
@@ -158,7 +196,5 @@ void loop() {
     Serial.println(F("\n✗ HTTP POST failed after all retries."));
   }
   
-  // Wait 30 seconds before next request
-  Serial.println(F("\nWaiting 30 seconds before next request..."));
-  delay(30000);
+  delay(5000);
 }
