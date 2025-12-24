@@ -77,8 +77,6 @@ void readThreePhase() {
 }
 
 void sendToESP() {
-
-
   Serial.println(F("\n--- Sending Data to ESP32 ---"));
 
   Serial.print("<DATA>");
